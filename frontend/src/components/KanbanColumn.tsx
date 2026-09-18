@@ -11,6 +11,9 @@ type KanbanColumnProps = {
   onRename: (columnId: string, title: string) => void;
   onAddCard: (columnId: string, title: string, details: string) => void;
   onDeleteCard: (columnId: string, cardId: string) => void;
+  onUpdateCard: (cardId: string, title: string, details: string) => void;
+  onMoveCard: (cardId: string, direction: "left" | "right") => void;
+  colorClass: string;
 };
 
 export const KanbanColumn = ({
@@ -19,6 +22,9 @@ export const KanbanColumn = ({
   onRename,
   onAddCard,
   onDeleteCard,
+  onUpdateCard,
+  onMoveCard,
+  colorClass,
 }: KanbanColumnProps) => {
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
 
@@ -34,7 +40,7 @@ export const KanbanColumn = ({
       <div className="flex items-start justify-between gap-3">
         <div className="w-full">
           <div className="flex items-center gap-3">
-            <div className="h-2 w-10 rounded-full bg-[var(--accent-yellow)]" />
+            <div className={clsx("h-2 w-10 rounded-full", colorClass)} />
             <span className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--gray-text)]">
               {cards.length} cards
             </span>
@@ -54,6 +60,9 @@ export const KanbanColumn = ({
               key={card.id}
               card={card}
               onDelete={(cardId) => onDeleteCard(column.id, cardId)}
+              onUpdate={onUpdateCard}
+              onMoveLeft={(cardId) => onMoveCard(cardId, "left")}
+              onMoveRight={(cardId) => onMoveCard(cardId, "right")}
             />
           ))}
         </SortableContext>
