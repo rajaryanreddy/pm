@@ -6,3 +6,11 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      # Keep the board database in the pm-db volume so data survives rebuilds.
+      PM_DB_PATH: /data/app.db
+    volumes:
+      - pm-db:/data
+
+volumes:
+  pm-db:
