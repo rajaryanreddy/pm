@@ -21,9 +21,9 @@ def test_load_environment_reads_project_dotenv(tmp_path, monkeypatch) -> None:
     dotenv_path.write_text("OPENROUTER_API_KEY=from-dotenv\n", encoding="utf-8")
 
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    from app import main
+    from app.config import load_environment
 
-    main.load_environment(dotenv_path.parent)
+    load_environment(dotenv_path.parent)
 
     assert os.environ["OPENROUTER_API_KEY"] == "from-dotenv"
 
@@ -105,7 +105,7 @@ def test_ai_test_endpoint_reports_openrouter_errors(monkeypatch) -> None:
         response.raise_for_status()
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr("app.main.httpx.post", fake_post)
+    monkeypatch.setattr("app.ai.httpx.post", fake_post)
 
     response = client.post("/api/ai/test", json={"question": "2+2"})
     assert response.status_code == 502
@@ -117,7 +117,7 @@ def test_ai_test_endpoint_reports_connection_failures(monkeypatch) -> None:
         raise httpx.ConnectError("connection refused")
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr("app.main.httpx.post", fake_post)
+    monkeypatch.setattr("app.ai.httpx.post", fake_post)
 
     response = client.post("/api/ai/test", json={"question": "2+2"})
     assert response.status_code == 502
@@ -147,7 +147,7 @@ def test_ai_test_endpoint_calls_openrouter(monkeypatch) -> None:
         })
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr("app.main.httpx.post", fake_post)
+    monkeypatch.setattr("app.ai.httpx.post", fake_post)
 
     response = client.post("/api/ai/test", json={"question": "2+2"})
     assert response.status_code == 200
@@ -174,7 +174,7 @@ def test_ai_test_endpoint_handles_plain_text_response(monkeypatch) -> None:
         })
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr("app.main.httpx.post", fake_post)
+    monkeypatch.setattr("app.ai.httpx.post", fake_post)
 
     response = client.post("/api/ai/test", json={"question": "2+2"})
     assert response.status_code == 200
@@ -208,7 +208,7 @@ def test_ai_board_endpoint_returns_structured_board_update(monkeypatch) -> None:
         })
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr("app.main.httpx.post", fake_post)
+    monkeypatch.setattr("app.ai.httpx.post", fake_post)
 
     response = client.post(
         "/api/ai/board",

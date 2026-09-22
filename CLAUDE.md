@@ -43,7 +43,7 @@ curl -X POST http://localhost:8000/api/ai/test -H 'Content-Type: application/jso
 
 ## Architecture
 
-Single FastAPI app (`backend/app/main.py`) contains everything backend: routes, SQLite persistence, OpenRouter integration, and static-file serving of `frontend/out`.
+Backend is a FastAPI app split across `backend/app/`: `main.py` (routes and static-file serving of `frontend/out`), `config.py` (paths, `PM_DB_PATH`, `.env` loading), `board.py` (seed board + validation), `database.py` (SQLite persistence), `ai.py` (OpenRouter calls, response parsing, error handling).
 
 - **Board persistence**: one SQLite table `board_data (user_id PRIMARY KEY, board_json TEXT)`, storing the whole board as one JSON blob (upsert on save). Path comes from `PM_DB_PATH` (default `backend/app.db` outside Docker; `/data/app.db` in Docker, where `/data` is the `pm-db` volume so board data survives image rebuilds). Tests set `PM_DB_PATH` to a temp file so they never touch real data. `backend/app.db` is gitignored user data. Created automatically on first access; `GET /api/board` seeds the default board if no row exists.
 - **API routes**: `GET/PUT /api/board` (load/save board JSON), `POST /api/ai/test` (OpenRouter connectivity check), `POST /api/ai/board` (question + current board + chat history → text response plus optional `board_update`). `OPENROUTER_API_KEY` comes from the root `.env`, loaded via `load_environment()`; it must stay backend-only.
