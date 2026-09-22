@@ -15,60 +15,11 @@ export type BoardData = {
   cards: Record<string, Card>;
 };
 
+// Minimal offline placeholder only. The real starting board is seeded by the
+// backend (DEFAULT_BOARD in backend/app/main.py) and arrives via GET /api/board.
 export const initialData: BoardData = {
-  columns: [
-    { id: "col-backlog", title: "Backlog", cardIds: ["card-1", "card-2"] },
-    { id: "col-discovery", title: "Discovery", cardIds: ["card-3"] },
-    {
-      id: "col-progress",
-      title: "In Progress",
-      cardIds: ["card-4", "card-5"],
-    },
-    { id: "col-review", title: "Review", cardIds: ["card-6"] },
-    { id: "col-done", title: "Done", cardIds: ["card-7", "card-8"] },
-  ],
-  cards: {
-    "card-1": {
-      id: "card-1",
-      title: "Align roadmap themes",
-      details: "Draft quarterly themes with impact statements and metrics.",
-    },
-    "card-2": {
-      id: "card-2",
-      title: "Gather customer signals",
-      details: "Review support tags, sales notes, and churn feedback.",
-    },
-    "card-3": {
-      id: "card-3",
-      title: "Prototype analytics view",
-      details: "Sketch initial dashboard layout and key drill-downs.",
-    },
-    "card-4": {
-      id: "card-4",
-      title: "Refine status language",
-      details: "Standardize column labels and tone across the board.",
-    },
-    "card-5": {
-      id: "card-5",
-      title: "Design card layout",
-      details: "Add hierarchy and spacing for scanning dense lists.",
-    },
-    "card-6": {
-      id: "card-6",
-      title: "QA micro-interactions",
-      details: "Verify hover, focus, and loading states.",
-    },
-    "card-7": {
-      id: "card-7",
-      title: "Ship marketing page",
-      details: "Final copy approved and asset pack delivered.",
-    },
-    "card-8": {
-      id: "card-8",
-      title: "Close onboarding sprint",
-      details: "Document release notes and share internally.",
-    },
-  },
+  columns: [{ id: "col-backlog", title: "Backlog", cardIds: [] }],
+  cards: {},
 };
 
 const isColumnId = (columns: Column[], id: string) =>
@@ -165,4 +116,49 @@ export const createId = (prefix: string) => {
   const randomPart = Math.random().toString(36).slice(2, 8);
   const timePart = Date.now().toString(36);
   return `${prefix}-${randomPart}${timePart}`;
+};
+
+export const applyBoardUpdate = (current: BoardData, update: BoardData): BoardData => {
+  const mergedCards = { ...current.cards, ...update.cards };
+
+  // Ignore updates that reference cards we know nothing about.
+  for (const updatedColumn of update.columns) {
+    for (const cardId of updatedColumn.cardIds) {
+      if (!mergedCards[cardId]) {
+        return current;
+      }
+    }
+  }
+
+  const columns = current.columns.map((column) => {
+    const updatedColumn = update.columns.find((nextColumn) => nextColumn.id === column.id);
+    return updatedColumn
+      ? { ...updatedColumn, cardIds: [...updatedColumn.cardIds] }
+      : { ...column, cardIds: [...column.cardIds] };
+  });
+
+  for (const newColumn of update.columns) {
+    if (!current.columns.some((column) => column.id === newColumn.id)) {
+      columns.push({ ...newColumn, cardIds: [...newColumn.cardIds] });
+    }
+  }
+
+  // Remove a card from any column other than its updated home column.
+  for (const updatedColumn of update.columns) {
+    for (const cardId of updatedColumn.cardIds) {
+      for (const column of columns) {
+        if (column.id !== updatedColumn.id) {
+          column.cardIds = column.cardIds.filter((id) => id !== cardId);
+        }
+      }
+    }
+  }
+
+  // Drop cards that no longer appear in any column.
+  const usedCardIds = new Set(columns.flatMap((column) => column.cardIds));
+  const cards = Object.fromEntries(
+    Object.entries(mergedCards).filter(([id]) => usedCardIds.has(id))
+  );
+
+  return { columns, cards };
 };

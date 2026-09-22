@@ -31,8 +31,9 @@ npm test          # vitest unit/component tests
 npm run test:e2e  # playwright (tests/kanban.spec.ts)
 npm run test:all  # unit + e2e
 npm run lint
-npm run build     # static export to frontend/out — required for FastAPI to serve the UI
+npm run build     # static export to frontend/out
 ```
+Note: the Docker image builds the frontend itself (`npm run build` runs inside the container), so a local build is only needed when running the backend directly outside Docker — FastAPI serves `frontend/out`.
 
 ### Smoke checks
 ```bash

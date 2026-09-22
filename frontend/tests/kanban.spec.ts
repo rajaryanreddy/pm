@@ -1,6 +1,31 @@
 import { expect, test } from "@playwright/test";
 
+// The board comes from the backend API; serve a fixed seed board so the
+// e2e run does not depend on a live backend.
+const seededBoard = {
+  columns: [
+    { id: "col-backlog", title: "Backlog", cardIds: ["card-1", "card-2"] },
+    { id: "col-discovery", title: "Discovery", cardIds: ["card-3"] },
+    { id: "col-progress", title: "In Progress", cardIds: ["card-4", "card-5"] },
+    { id: "col-review", title: "Review", cardIds: ["card-6"] },
+    { id: "col-done", title: "Done", cardIds: ["card-7", "card-8"] },
+  ],
+  cards: {
+    "card-1": { id: "card-1", title: "Align roadmap themes", details: "Draft quarterly themes." },
+    "card-2": { id: "card-2", title: "Gather customer signals", details: "Review support tags." },
+    "card-3": { id: "card-3", title: "Prototype analytics view", details: "Sketch dashboard layout." },
+    "card-4": { id: "card-4", title: "Refine status language", details: "Standardize labels." },
+    "card-5": { id: "card-5", title: "Design card layout", details: "Add hierarchy and spacing." },
+    "card-6": { id: "card-6", title: "QA micro-interactions", details: "Verify hover and focus." },
+    "card-7": { id: "card-7", title: "Ship marketing page", details: "Final copy approved." },
+    "card-8": { id: "card-8", title: "Close onboarding sprint", details: "Document release notes." },
+  },
+};
+
 async function logIn(page: import("@playwright/test").Page) {
+  await page.route("**/api/board", async (route) => {
+    await route.fulfill({ json: seededBoard });
+  });
   await page.goto("/");
   await page.getByLabel("Username").fill("user");
   await page.getByLabel("Password").fill("password");

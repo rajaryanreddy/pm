@@ -1,11 +1,19 @@
 import json as json_module
 import os
 
+import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def isolated_database(tmp_path, monkeypatch) -> None:
+    """Point every test at a throwaway database so real board data is never touched."""
+    monkeypatch.setenv("PM_DB_PATH", str(tmp_path / "test_app.db"))
 
 
 def test_load_environment_reads_project_dotenv(tmp_path, monkeypatch) -> None:
@@ -54,6 +62,66 @@ def test_board_endpoint_persists_updates() -> None:
     get_response = client.get("/api/board")
     assert get_response.status_code == 200
     assert get_response.json()["cards"]["card-one"]["title"] == "Persisted task"
+
+
+def test_board_endpoint_rejects_missing_cards() -> None:
+    response = client.put("/api/board", json={"columns": [{"id": "col-one", "title": "Todo", "cardIds": []}]})
+    assert response.status_code == 400
+    assert "cards" in response.json()["detail"]
+
+
+def test_board_endpoint_rejects_columns_that_are_not_a_list() -> None:
+    response = client.put("/api/board", json={"columns": "nope", "cards": {}})
+    assert response.status_code == 400
+
+
+def test_board_endpoint_rejects_card_without_matching_card() -> None:
+    board = {
+        "columns": [{"id": "col-one", "title": "Todo", "cardIds": ["ghost-card"]}],
+        "cards": {},
+    }
+    response = client.put("/api/board", json=board)
+    assert response.status_code == 400
+    assert "ghost-card" in response.json()["detail"]
+
+
+def test_board_endpoint_rejects_duplicate_column_ids() -> None:
+    board = {
+        "columns": [
+            {"id": "col-one", "title": "Todo", "cardIds": []},
+            {"id": "col-one", "title": "Again", "cardIds": []},
+        ],
+        "cards": {},
+    }
+    response = client.put("/api/board", json=board)
+    assert response.status_code == 400
+    assert "unique" in response.json()["detail"]
+
+
+def test_ai_test_endpoint_reports_openrouter_errors(monkeypatch) -> None:
+    def fake_post(url, headers=None, json=None, timeout=None):
+        request = httpx.Request("POST", url)
+        response = httpx.Response(402, request=request, text="payment required")
+        response.raise_for_status()
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr("app.main.httpx.post", fake_post)
+
+    response = client.post("/api/ai/test", json={"question": "2+2"})
+    assert response.status_code == 502
+    assert "402" in response.json()["detail"]
+
+
+def test_ai_test_endpoint_reports_connection_failures(monkeypatch) -> None:
+    def fake_post(url, headers=None, json=None, timeout=None):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr("app.main.httpx.post", fake_post)
+
+    response = client.post("/api/ai/test", json={"question": "2+2"})
+    assert response.status_code == 502
+    assert "Could not reach" in response.json()["detail"]
 
 
 def test_ai_test_endpoint_calls_openrouter(monkeypatch) -> None:

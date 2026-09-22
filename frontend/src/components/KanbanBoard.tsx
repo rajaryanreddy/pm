@@ -13,45 +13,19 @@ import {
 } from "@dnd-kit/core";
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
-import { createId, initialData, moveCard, type BoardData } from "@/lib/kanban";
+import {
+  applyBoardUpdate,
+  createId,
+  initialData,
+  moveCard,
+  type BoardData,
+} from "@/lib/kanban";
 
 const columnColors = [
   "bg-[#209dd7]",
   "bg-[#ecad0a]",
-  "bg-[#2a9d8f]",
-  "bg-[#e76f51]",
   "bg-[#753991]",
 ];
-
-const applyBoardUpdate = (current: BoardData, update: BoardData): BoardData => {
-  const columns = current.columns.map((column) => {
-    const updatedColumn = update.columns.find((nextColumn) => nextColumn.id === column.id);
-    return updatedColumn
-      ? { ...updatedColumn, cardIds: [...updatedColumn.cardIds] }
-      : { ...column, cardIds: [...column.cardIds] };
-  });
-
-  for (const newColumn of update.columns) {
-    if (!current.columns.some((column) => column.id === newColumn.id)) {
-      columns.push({ ...newColumn, cardIds: [...newColumn.cardIds] });
-    }
-  }
-
-  for (const updatedColumn of update.columns) {
-    for (const cardId of updatedColumn.cardIds) {
-      for (const column of columns) {
-        if (column.id !== updatedColumn.id) {
-          column.cardIds = column.cardIds.filter((id) => id !== cardId);
-        }
-      }
-    }
-  }
-
-  return {
-    columns,
-    cards: { ...current.cards, ...update.cards },
-  };
-};
 
 const AIChatSidebar = ({
   board,
@@ -73,7 +47,7 @@ const AIChatSidebar = ({
       return;
     }
 
-    const history = messages.map((message) => ({
+    const history = messages.slice(-10).map((message) => ({
       role: message.role,
       content: message.text,
     }));

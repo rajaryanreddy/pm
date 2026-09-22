@@ -174,3 +174,6 @@ cython_debug/
 
 .DS_Store
 
+
+# Local app database (user board data)
+backend/app.db

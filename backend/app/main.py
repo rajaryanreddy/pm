@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 from pathlib import Path
@@ -11,11 +12,82 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+logger = logging.getLogger(__name__)
+
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+AI_MODEL = "openai/gpt-oss-20b"
+
+
+def _validate_board(board: object) -> dict:
+    if not isinstance(board, dict):
+        raise HTTPException(status_code=400, detail="Board payload must be a JSON object.")
+
+    columns = board.get("columns")
+    cards = board.get("cards")
+    if not isinstance(columns, list) or not columns:
+        raise HTTPException(status_code=400, detail="Board payload must include a non-empty columns list.")
+    if not isinstance(cards, dict):
+        raise HTTPException(status_code=400, detail="Board payload must include a cards object.")
+
+    for column in columns:
+        if not isinstance(column, dict) or not isinstance(column.get("id"), str) or not column["id"]:
+            raise HTTPException(status_code=400, detail="Every column must have a non-empty string id.")
+        if not isinstance(column.get("title"), str):
+            raise HTTPException(status_code=400, detail="Every column must have a string title.")
+        card_ids = column.get("cardIds")
+        if not isinstance(card_ids, list) or not all(isinstance(card_id, str) for card_id in card_ids):
+            raise HTTPException(status_code=400, detail="Every column must have a cardIds list of strings.")
+
+    column_ids = [column["id"] for column in columns]
+    if len(column_ids) != len(set(column_ids)):
+        raise HTTPException(status_code=400, detail="Column ids must be unique.")
+
+    for card_id in (card_id for column in columns for card_id in column["cardIds"]):
+        if card_id not in cards:
+            raise HTTPException(status_code=400, detail=f"Card id '{card_id}' has no matching card.")
+
+    for card_id, card in cards.items():
+        if not isinstance(card, dict) or not isinstance(card.get("title"), str):
+            raise HTTPException(status_code=400, detail=f"Card '{card_id}' must have a string title.")
+
+    return board
+
+
+def _call_openrouter(api_key: str, messages: list[dict]) -> str:
+    try:
+        response = httpx.post(
+            OPENROUTER_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={"model": AI_MODEL, "messages": messages},
+            timeout=30,
+        )
+        response.raise_for_status()
+    except httpx.HTTPStatusError as error:
+        status = error.response.status_code
+        logger.error("OpenRouter returned %s: %s", status, error.response.text)
+        raise HTTPException(
+            status_code=502,
+            detail=f"AI service returned {status}. Check the OpenRouter API key and quota.",
+        ) from error
+    except httpx.HTTPError as error:
+        logger.error("Could not reach OpenRouter: %s", error)
+        raise HTTPException(status_code=502, detail="Could not reach the AI service.") from error
+
+    return response.json()["choices"][0]["message"]["content"]
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 PROJECT_ROOT = BASE_DIR.parent
 FRONTEND_BUILD_DIR = PROJECT_ROOT / "frontend" / "out"
 FALLBACK_HTML = BASE_DIR / "app" / "static" / "hello.html"
 DB_PATH = BASE_DIR / "app.db"
+
+
+def _db_path() -> Path:
+    # PM_DB_PATH lets the test suite use a throwaway database.
+    return Path(os.environ.get("PM_DB_PATH", str(DB_PATH)))
 PROJECT_ROOT = BASE_DIR.parent
 DEFAULT_BOARD = {
     "columns": [
@@ -80,7 +152,7 @@ load_environment(PROJECT_ROOT)
 
 
 def _get_connection() -> sqlite3.Connection:
-    connection = sqlite3.connect(DB_PATH)
+    connection = sqlite3.connect(_db_path())
     connection.row_factory = sqlite3.Row
     return connection
 
@@ -147,14 +219,11 @@ async def get_board() -> dict:
 
 @app.put("/api/board")
 async def update_board(board: dict) -> dict:
-    if not isinstance(board, dict) or "columns" not in board or "cards" not in board:
-        raise HTTPException(status_code=400, detail="Board payload must include columns and cards.")
-
-    return _save_board(board)
+    return _save_board(_validate_board(board))
 
 
 @app.post("/api/ai/test")
-async def ai_test(payload: dict) -> dict:
+def ai_test(payload: dict) -> dict:
     question = payload.get("question", "")
     if not question:
         raise HTTPException(status_code=400, detail="Question is required.")
@@ -164,30 +233,13 @@ async def ai_test(payload: dict) -> dict:
     if not api_key:
         raise HTTPException(status_code=500, detail="OPENROUTER_API_KEY is not configured.")
 
-    response = httpx.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": "openai/gpt-oss-20b",
-            "messages": [
-                {"role": "user", "content": question},
-            ],
-        },
-        timeout=30,
-    )
-    response.raise_for_status()
-
-    data = response.json()
-    content = data["choices"][0]["message"]["content"]
+    content = _call_openrouter(api_key, [{"role": "user", "content": question}])
     parsed = _parse_model_json(content)
     return {"answer": parsed.get("message", content) if parsed else str(content)}
 
 
 @app.post("/api/ai/board")
-async def ai_board(payload: dict) -> dict:
+def ai_board(payload: dict) -> dict:
     question = payload.get("question", "")
     board = payload.get("board", {})
     history = payload.get("history", [])
@@ -200,34 +252,22 @@ async def ai_board(payload: dict) -> dict:
     if not api_key:
         raise HTTPException(status_code=500, detail="OPENROUTER_API_KEY is not configured.")
 
-    response = httpx.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": "openai/gpt-oss-20b",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a project-management assistant. Return only valid JSON with keys "
-                        "message and board_update. If no board update is needed, set board_update to null. "
-                        "When changing the board, board_update must include the complete columns and cards "
-                        "objects, preserve every existing card and column, and change cardIds to reflect moves. "
-                        "Never claim a card was moved unless its cardId appears in the destination column."
-                    ),
-                },
-                {"role": "user", "content": json.dumps({"question": question, "board": board, "history": history})},
-            ],
-        },
-        timeout=30,
+    content = _call_openrouter(
+        api_key,
+        [
+            {
+                "role": "system",
+                "content": (
+                    "You are a project-management assistant. Return only valid JSON with keys "
+                    "message and board_update. If no board update is needed, set board_update to null. "
+                    "When changing the board, board_update must include the complete columns and cards "
+                    "objects, preserve every existing card and column, and change cardIds to reflect moves. "
+                    "Never claim a card was moved unless its cardId appears in the destination column."
+                ),
+            },
+            {"role": "user", "content": json.dumps({"question": question, "board": board, "history": history})},
+        ],
     )
-    response.raise_for_status()
-
-    data = response.json()
-    content = data["choices"][0]["message"]["content"]
     parsed = _parse_model_json(content) or {"message": str(content), "board_update": None}
 
     return {
